@@ -1,19 +1,25 @@
-from re import X
+import argparse
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.utils import read_data
 from torchmetrics import Accuracy
 import pytorch_lightning as pl
 import torchvision.models as models 
-from src.utils_seq import create_dataset
 from torch.utils.data import DataLoader
+from pytorch_lightning.callbacks import StochasticWeightAveraging
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning import seed_everything
 
+from src.utils_seq import create_dataset
+from src.utils import compute_metrics, read_data
 class GRUModel(pl.LightningModule):   
-    def __init__(self,data):
+    """Pytorch Lightning instance of GRU model applied on the protein sequences
+    """
+    def __init__(self,data, lr = 5e-3, batch_size = 512):
         super(GRUModel, self).__init__()
-        self.lr = 5e-3
-        self.batch_size = 512
+        self.lr = lr
+        self.batch_size = batch_size
         self.data=data
         self.y_true = []
         self.y_pred = []
@@ -44,7 +50,7 @@ class GRUModel(pl.LightningModule):
     
     
     def training_step(self, batch, batch_idx):
-        names, sequences, y = batch
+        _, sequences, y = batch
         y_hat = self(sequences)
         loss = self.criterion(y_hat, y.view(-1))
         self.log('train_loss', loss, batch_size=self.batch_size)
@@ -56,7 +62,7 @@ class GRUModel(pl.LightningModule):
         self.log('train_loss_epoch', avg_loss, prog_bar=True, batch_size=self.batch_size)
     
     def validation_step(self, batch, batch_nb):
-        names, sequences, y = batch
+        _, sequences, y = batch
         y_hat = self(sequences)
         preds = torch.argmax(y_hat, dim=1)
         self.val_accuracy.update(preds,  y.view(-1))
@@ -71,12 +77,15 @@ class GRUModel(pl.LightningModule):
         preds = torch.argmax(y_hat, dim=1)
         self.y_true += y.detach().tolist()
         self.y_pred += preds.detach().tolist()
-        self.names += names.detach().tolist()
+        self.names += list(names)
         self.test_accuracy.update(preds, y.view(-1))
         loss = self.criterion(y_hat, y.view(-1))
         # Calling self.log will surface up scalars for you in TensorBoard
         self.log("test_loss", loss, prog_bar=True, batch_size=self.batch_size)
         self.log("test_acc", self.test_accuracy, prog_bar=True, batch_size=self.batch_size)
+        
+    def test_epoch_end(self, outputs):
+        return compute_metrics(self.y_true, self.y_pred, self.path_results, 'LSTM', names=self.names)
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr = self.lr)
@@ -107,18 +116,13 @@ class GRUModel(pl.LightningModule):
         self.max_sequence_length = 128
         self.max_nb_chars = 21
         self.embedding_dim=64
+        self.path_results='results/'
 
-
-
-if __name__ == '__main__':
-    from pytorch_lightning.callbacks import StochasticWeightAveraging
-    from pytorch_lightning.callbacks import ModelCheckpoint
-    from pytorch_lightning import seed_everything
-
+def main(args):
     seed_everything(0)
-    epochs = 5
+    epochs = args.n_epochs
     data = read_data()
-    net = GRUModel(data)
+    net = net = GRUModel(data, args.learning_rate, args.batch_size)
     checkpoint_callback = ModelCheckpoint(dirpath="checkpoints/GRU/", save_top_k=2, monitor="val_acc", mode='max')
     trainer = pl.Trainer(accelerator='gpu',
             max_epochs=epochs,
@@ -130,3 +134,14 @@ if __name__ == '__main__':
                             )
     trainer.fit(net)
     out = trainer.test(ckpt_path='best')
+    
+if __name__ == '__main__':  
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-lr", "--learning_rate", type=float, default=5e-3,
+        help = "Learning Rate to use for the optimizer")
+    parser.add_argument("-bs", "--batch_size", type=int,default=512, 
+	    help = "Batch Size for training")
+    parser.add_argument("--n_epochs", type=int,default=100, 
+	help = "Number of epochs to train the model")
+    main(parser.parse_args())
+    

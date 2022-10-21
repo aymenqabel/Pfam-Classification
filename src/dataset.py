@@ -1,8 +1,12 @@
-from torch.utils.data import Dataset
 import torch
-
+from torch.utils.data import Dataset
 class PfamDataset(Dataset):
-    def __init__(self, sequences, names,y, transform=None):
+    """Dataset object for loading the protein sequences
+
+    Args:
+        Dataset (Torch Dataset): _description_
+    """
+    def __init__(self, sequences, names,y):
         self.sequences = sequences
         self.targets = torch.LongTensor(y)
         self.names = names
@@ -10,5 +14,3 @@ class PfamDataset(Dataset):
         return self.names[index], self.sequences[index], self.targets[index]
     def __len__(self):
         return len(self.names)
-
-

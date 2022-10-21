@@ -1,13 +1,22 @@
-import esm
+import argparse
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchmetrics import Accuracy
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import StochasticWeightAveraging
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning import seed_everything
+
+import esm
+
 from src.dataset import PfamDataset
 from src.utils import compute_metrics, read_data
-
-class ESM_Model(nn.Module):
+   
+class EsmModel(nn.Module):
+    """ESM Model to use with 8 million parameters
+    """
     def __init__(self, hidden_channels):
         super().__init__()
         self.model, self.alphabet = esm.pretrained.esm2_t6_8M_UR50D()
@@ -30,18 +39,20 @@ class ESM_Model(nn.Module):
 
 
 class ESM(pl.LightningModule):   
-    def __init__(self, data):
-        super(Net, self).__init__()
-        self.lr = 3e-4
-        self.batch_size = 8
+    """Pytorch Lightning Instance of the ESM model
+    """
+    def __init__(self, data, lr = 3e-4, batch_size = 8, ):
+        super(ESM, self).__init__()
+        self.lr = lr
+        self.batch_size = batch_size
+        self.path_results = 'results/'
         self.y_true = []
         self.y_pred = []
         self.names = []
         self.val_accuracy = Accuracy()
         self.test_accuracy = Accuracy()
         output_dim = max(data['train'].label) + 1
-        print(output_dim)
-        self.model =  ESM_Model(output_dim)  
+        self.model =  EsmModel(output_dim)  
         self.data = data
         self.criterion = nn.CrossEntropyLoss() 
 
@@ -79,7 +90,7 @@ class ESM(pl.LightningModule):
         preds = torch.argmax(y_hat, dim=1)
         self.y_true += y.detach().tolist()
         self.y_pred += preds.detach().tolist()
-        self.names += names.detach().tolist()
+        self.names += list(names)
         self.test_accuracy.update(preds, y.view(-1))
         loss = self.criterion(y_hat, y.view(-1))
         # Calling self.log will surface up scalars for you in TensorBoard
@@ -111,15 +122,11 @@ class ESM(pl.LightningModule):
     def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=4)
 
-if __name__ == '__main__':
-    from pytorch_lightning.callbacks import StochasticWeightAveraging
-    from pytorch_lightning.callbacks import ModelCheckpoint
-    from pytorch_lightning import seed_everything
-
+def main(args):
     seed_everything(0)
-    epochs = 5
+    epochs = args.n_epochs
     data = read_data()
-    net = ESM(data)
+    net = ESM(data, args.learning_rate, args.batch_size)
     checkpoint_callback = ModelCheckpoint(dirpath="checkpoints/ESM/", save_top_k=2, monitor="val_acc", mode='max')
     trainer = pl.Trainer(accelerator='gpu',
             max_epochs=epochs,
@@ -131,3 +138,14 @@ if __name__ == '__main__':
                             )
     trainer.fit(net)
     out = trainer.test(ckpt_path='best')
+    
+if __name__ == '__main__':  
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-lr", "--learning_rate", type=float, default=3e-4,
+        help = "Learning Rate to use for the optimizer")
+    parser.add_argument("-bs", "--batch_size", type=int,default=8, 
+	    help = "Batch Size for training")
+    parser.add_argument("--n_epochs", type=int,default=10, 
+	help = "Number of epochs to train the model")
+    main(parser.parse_args())
+    
