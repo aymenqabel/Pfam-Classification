@@ -30,4 +30,4 @@ the family in seed, with gaps retained.
 
 In this project, we develop five different approaches: BLAST (alignment-based method), TFIDF, LSTM-based method, CNN-based method and a protein language model based method (ESM)
 
-To run the project and retrieve the results, please follow this [colab notebook](https://colab.research.google.com/drive/126pLNqShG515j9VmEMJohU6SVa2WEvZw?usp=sharing).
+To run the project and retrieve the results, please follow this [Colab Notebook](https://colab.research.google.com/drive/126pLNqShG515j9VmEMJohU6SVa2WEvZw?usp=sharing).
